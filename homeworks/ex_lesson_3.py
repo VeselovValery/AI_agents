@@ -4,7 +4,7 @@ from typing import List
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
-from homeworks.ai_agent import Agent
+from homeworks.ai_agent import Agent, AgentPromptConfig
 
 
 load_dotenv()
@@ -24,7 +24,7 @@ agent = Agent(
     base_url=os.getenv('BASE_URL'),
     api_key=os.getenv('API_KEY'),
     temperature=float(os.getenv('MODEL_TEMPERATURE')),
-    max_retries=2
+    db_history='chat_history.db'
 )
 examples = [
     {
@@ -40,7 +40,7 @@ examples = [
         'output': 'Уровень: senior'
     }
 ]
-prompt = agent.prompt(
+prompt_config = AgentPromptConfig(
     role='Ты - специалист по анализу текста вакансий',
     task='Анализировать текст вакансий и находить в тексте ключевые моменты, которые важны для данной вакансии',
     rules="""
@@ -62,13 +62,16 @@ prompt = agent.prompt(
     examples=examples,
     output_format=JobAnalysis
 )
-
-chain = prompt | agent.model | agent.parser
-response = chain.invoke({'question': """
+chain = agent.chain(prompt_config)
+raw_response = chain.invoke(
+    {'question': """
     Ищем Python разработчика. Требования: Django, PostgreSQL, 
-REST API. Опыт от 3 лет. Знание Docker будет плюсом. 
-Офис в Москве, возможна частичная удаленка.
-"""})
+    REST API. Опыт от 3 лет. Знание Docker будет плюсом. 
+    Офис в Москве, возможна частичная удаленка.
+    """},
+    config={'configurable': {'session_id': 'head_hunter'}}
+)
+response = JobAnalysis.model_validate_json(raw_response.content)
 
 print(response.position)
 print(response.required_skills)

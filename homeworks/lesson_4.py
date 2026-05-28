@@ -2,11 +2,8 @@ import os
 import sqlite3
 
 from dotenv import load_dotenv
-from langchain_core.runnables import RunnablePassthrough, RunnableWithMessageHistory
-from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, Field
 
-from homeworks.ai_agent import Agent
+from homeworks.ai_agent import Agent, AgentPromptConfig
 
 
 load_dotenv()
@@ -16,10 +13,8 @@ agent = Agent(
     base_url=os.getenv('BASE_URL'),
     api_key=os.getenv('API_KEY'),
     temperature=float(os.getenv('MODEL_TEMPERATURE')),
-    max_retries=2,
     db_history='chat_history.db'
 )
-trimmer = agent.trimmer(20)
 
 mode = input('Режим tutor/reviewer (y/n): ')
 while mode not in ['y', 'n']:
@@ -28,25 +23,14 @@ if mode == 'y':
     role = 'Терпеливый преподаватель Python, объясняешь концепции с примерами'
 else:
     role = 'Строгий code reviewer, указываешь на проблемы и предлагаешь улучшения'
-prompt = agent.prompt(role=role)
+prompt_config = AgentPromptConfig(role=role)
 login = input('Логин: ')
-messages = None
 
-chain = (
-    RunnablePassthrough.assign(history=lambda x: trimmer.invoke(x["history"]))
-    | prompt
-    | agent.model
-)
-chain_with_history = RunnableWithMessageHistory(
-    chain,
-    agent.get_session_history,
-    input_messages_key='question',
-    history_messages_key="history",
-)
+chain = agent.chain(prompt_config)
 
 
 def chat(session_id, message):
-    response = chain_with_history.invoke(
+    response = chain.invoke(
         {'question': message},
         config={'configurable': {'session_id': session_id}},
     )
@@ -56,7 +40,7 @@ def chat(session_id, message):
 def count_messages(session_id, db_path='chat_history.db'):
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM message_store WHERE session_id = ?", (session_id,))
+        cursor.execute('SELECT COUNT(*) FROM message_store WHERE session_id = ?', (session_id,))
         return cursor.fetchone()[0]
 
 
@@ -65,6 +49,6 @@ while True:
     if messages == '/exit':
         break
     if messages == '/history':
-        print(f"Всего сообщений: {count_messages(login)}")
+        print(f'Всего сообщений: {count_messages(login)}')
         continue
     print(f'ИИ: {chat(login, messages)}')
